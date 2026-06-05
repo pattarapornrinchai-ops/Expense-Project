@@ -698,10 +698,41 @@ function ExpensesPage({ showFlash, setLoading }) {
 
   const filteredTotal = useMemo(()=>filtered.reduce((s,e)=>s+(parseFloat(e.total_amount)||0),0),[filtered]);
 
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiText, setAiText] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
   const openAdd = () => { setForm(blank); setEditItem(null); setShowModal(true); };
   const openEdit = e => {
     setForm({ project_id:e.project_id, location_id:e.location_id, category_id:e.category_id, description:e.description, unit_price:e.unit_price, quantity:e.quantity, note:e.note||"", file_quote:e.file_quote||"", file_slip:e.file_slip||"", expense_date:e.expense_date||"" });
     setEditItem(e); setShowModal(true);
+  };
+
+  const aiParse = async () => {
+    if(!aiText.trim()){ showFlash("กรุณาพิมพ์ข้อความก่อน","err"); return; }
+    setAiLoading(true);
+    const r = await apiPost({ action:"aiParseExpense", text:aiText });
+    if(r.ok){
+      setForm({
+        project_id:   r.data.project_id||"" ,
+        location_id:  r.data.location_id||"ALL",
+        category_id:  r.data.category_id||"",
+        description:  r.data.description||"",
+        unit_price:   r.data.unit_price||"",
+        quantity:     r.data.quantity||"1",
+        note:         r.data.note||"",
+        file_quote:   "",
+        file_slip:    "",
+        expense_date: r.data.expense_date||"",
+      });
+      setEditItem(null);
+      setShowAiModal(false);
+      setShowModal(true);
+      showFlash("AI กรอกข้อมูลให้แล้ว กรุณาตรวจสอบก่อนบันทึก ✓");
+    } else {
+      showFlash(r.error||"AI แปลงข้อมูลไม่สำเร็จ","err");
+    }
+    setAiLoading(false);
   };
 
   const save = async () => {
@@ -727,7 +758,10 @@ function ExpensesPage({ showFlash, setLoading }) {
     <div className="page fade-in">
       <div className="flex-between page-header">
         <div><div className="page-title">ค่าใช้จ่าย</div><div className="page-subtitle">บันทึกและดูรายการค่าใช้จ่ายทั้งหมด</div></div>
-        <button className="btn btn-primary" onClick={openAdd}>＋ บันทึกรายจ่าย</button>
+        <div style={{display:"flex",gap:10}}>
+          <button className="btn btn-ghost" onClick={()=>{setAiText("");setShowAiModal(true)}} style={{background:"linear-gradient(135deg,#667eea,#764ba2)",color:"#fff",border:"none"}}>✨ AI กรอกให้</button>
+          <button className="btn btn-primary" onClick={openAdd}>＋ บันทึกรายจ่าย</button>
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -810,6 +844,30 @@ function ExpensesPage({ showFlash, setLoading }) {
               </tfoot>
             )}
           </table>
+        </div>
+      )}
+
+      {/* AI Parse Modal */}
+      {showAiModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowAiModal(false)}>
+          <div className="modal" style={{maxWidth:500}}>
+            <div className="modal-title">✨ AI กรอกค่าใช้จ่ายให้</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:14,lineHeight:1.6}}>
+              พิมพ์รายการค่าใช้จ่ายเป็นข้อความธรรมดา แล้ว AI จะแปลงให้อัตโนมัติ<br/>
+              <span style={{color:"var(--text3)"}}>ตัวอย่าง: "ค่าแรงทีมงาน สนามเชียงใหม่ โครงการ A 3,500 บาท"</span>
+            </div>
+            <div className="field">
+              <label>ข้อความรายการค่าใช้จ่าย</label>
+              <textarea className="inp" rows={4} value={aiText} onChange={e=>setAiText(e.target.value)}
+                placeholder="เช่น: ซื้อเสื้อทีม 50 ตัว ตัวละ 200 บาท, ค่าจ้างแรงงานสนามขอนแก่น 5,000 บาท โครงการ B..."/>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={aiParse} disabled={aiLoading} className="btn btn-primary" style={{flex:1,justifyContent:"center",background:"linear-gradient(135deg,#667eea,#764ba2)",border:"none"}}>
+                {aiLoading ? <span className="spin">⏳</span> : "✨"} {aiLoading ? "กำลังวิเคราะห์..." : "ให้ AI กรอกให้"}
+              </button>
+              <button onClick={()=>setShowAiModal(false)} className="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1167,6 +1225,30 @@ function PriceComparisonsPage({ showFlash, setLoading }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* AI Parse Modal */}
+      {showAiModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowAiModal(false)}>
+          <div className="modal" style={{maxWidth:500}}>
+            <div className="modal-title">✨ AI กรอกค่าใช้จ่ายให้</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:14,lineHeight:1.6}}>
+              พิมพ์รายการค่าใช้จ่ายเป็นข้อความธรรมดา แล้ว AI จะแปลงให้อัตโนมัติ<br/>
+              <span style={{color:"var(--text3)"}}>ตัวอย่าง: "ค่าแรงทีมงาน สนามเชียงใหม่ โครงการ A 3,500 บาท"</span>
+            </div>
+            <div className="field">
+              <label>ข้อความรายการค่าใช้จ่าย</label>
+              <textarea className="inp" rows={4} value={aiText} onChange={e=>setAiText(e.target.value)}
+                placeholder="เช่น: ซื้อเสื้อทีม 50 ตัว ตัวละ 200 บาท, ค่าจ้างแรงงานสนามขอนแก่น 5,000 บาท โครงการ B..."/>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={aiParse} disabled={aiLoading} className="btn btn-primary" style={{flex:1,justifyContent:"center",background:"linear-gradient(135deg,#667eea,#764ba2)",border:"none"}}>
+                {aiLoading ? <span className="spin">⏳</span> : "✨"} {aiLoading ? "กำลังวิเคราะห์..." : "ให้ AI กรอกให้"}
+              </button>
+              <button onClick={()=>setShowAiModal(false)} className="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </div>
         </div>
       )}
 
