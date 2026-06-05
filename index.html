@@ -831,6 +831,7 @@ function ExpensesPage({ showFlash, setLoading }) {
                 <label>สนาม/จังหวัด *</label>
                 <select className="inp" value={form.location_id} onChange={e=>setForm({...form,location_id:e.target.value})}>
                   <option value="">— เลือกสนาม —</option>
+                  <option value="ALL">🏢 ทั้งโครงการ</option>
                   {locations.map(l=><option key={l.location_id} value={l.location_id}>{l.location_name}</option>)}
                 </select>
               </div>
@@ -1020,15 +1021,190 @@ function SummaryPage() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  PRICE COMPARISONS PAGE (ราคากลาง)
+// ════════════════════════════════════════════════════════════════
+function PriceComparisonsPage({ showFlash, setLoading }) {
+  const [items, setItems] = useState([]);
+  const [loc, setLoc] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [search, setSearch] = useState("");
+  const blank = { item_name:"", vendor_name:"", price:"", quote_date:"", note:"" };
+  const [form, setForm] = useState(blank);
+
+  const load = async () => {
+    setLoc(true);
+    const r = await apiGet({ action:"getPriceComparisons" });
+    if(r.ok) setItems(r.data);
+    setLoc(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const openAdd = () => { setForm(blank); setEditItem(null); setShowModal(true); };
+  const openEdit = item => {
+    setForm({ item_name:item.item_name, vendor_name:item.vendor_name, price:item.price, quote_date:item.quote_date||"", note:item.note||"" });
+    setEditItem(item); setShowModal(true);
+  };
+
+  const save = async () => {
+    if(!form.item_name || !form.vendor_name || !form.price) {
+      showFlash("กรุณากรอกรายการ, ชื่อบริษัท และราคา","err"); return;
+    }
+    setLoading(true);
+    const r = await apiPost({ action: editItem ? "editPriceComparison" : "addPriceComparison", ...form, price_id: editItem?.price_id });
+    if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"เพิ่มราคากลางสำเร็จ ✓"); setShowModal(false); await load(); }
+    else showFlash(r.error||"เกิดข้อผิดพลาด","err");
+    setLoading(false);
+  };
+
+  const del = async id => {
+    setLoading(true);
+    const r = await apiPost({ action:"deletePriceComparison", price_id:id });
+    if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
+    else showFlash(r.error||"ลบไม่สำเร็จ","err");
+    setLoading(false); setConfirm(null);
+  };
+
+  // Group by item_name for comparison view
+  const filtered = useMemo(() => items.filter(it => {
+    if(!search) return true;
+    return `${it.item_name}${it.vendor_name}${it.note}`.toLowerCase().includes(search.toLowerCase());
+  }), [items, search]);
+
+  const grouped = useMemo(() => {
+    const map = {};
+    filtered.forEach(it => {
+      const key = it.item_name;
+      if(!map[key]) map[key] = [];
+      map[key].push(it);
+    });
+    return map;
+  }, [filtered]);
+
+  return (
+    <div className="page fade-in">
+      <div className="flex-between page-header">
+        <div>
+          <div className="page-title">ราคากลาง</div>
+          <div className="page-subtitle">รวบรวมราคาจากหลายบริษัทเพื่อเปรียบเทียบ (ไม่นับรวมในยอดค่าใช้จ่าย)</div>
+        </div>
+        <button className="btn btn-primary" onClick={openAdd}>＋ เพิ่มราคากลาง</button>
+      </div>
+
+      {/* Search */}
+      <div className="filter-bar">
+        <input className="inp inp-sm" style={{minWidth:220}} placeholder="🔍 ค้นหารายการหรือบริษัท..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        {search && <button className="btn btn-ghost btn-sm" onClick={()=>setSearch("")}>✕ ล้าง</button>}
+      </div>
+
+      {loc ? (
+        <div style={{display:"grid",gap:14}}>{[1,2].map(i=><div key={i} className="skeleton" style={{height:120}}/>)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="card empty">
+          <div className="empty-icon">🏷️</div>
+          <div>{search ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีข้อมูลราคากลาง กดปุ่ม \"เพิ่มราคากลาง\" เพื่อเริ่มต้น"}</div>
+        </div>
+      ) : (
+        <div style={{display:"grid",gap:18}}>
+          {Object.entries(grouped).map(([itemName, rows]) => {
+            const minPrice = Math.min(...rows.map(r=>parseFloat(r.price)||0));
+            const maxPrice = Math.max(...rows.map(r=>parseFloat(r.price)||0));
+            return (
+              <div key={itemName} className="card">
+                {/* Item header */}
+                <div className="flex-between" style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{fontFamily:"'Kanit',sans-serif",fontSize:16,fontWeight:700}}>{itemName}</div>
+                    <span className="badge badge-gray">{rows.length} บริษัท</span>
+                  </div>
+                  <div style={{fontSize:12,color:"var(--text2)"}}>
+                    ราคาต่ำสุด <strong style={{color:"var(--green)"}}>{fmt(minPrice)} ฿</strong>
+                    {rows.length > 1 && <> — สูงสุด <strong style={{color:"var(--red)"}}>{fmt(maxPrice)} ฿</strong></>}
+                  </div>
+                </div>
+
+                {/* Vendor table */}
+                <div className="tbl-wrap">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>บริษัท/ร้านค้า</th>
+                        <th className="text-right">ราคาที่เสนอ</th>
+                        <th>วันที่สืบราคา</th>
+                        <th>หมายเหตุ</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r,i) => {
+                        const isMin = rows.length > 1 && parseFloat(r.price) === minPrice;
+                        const isMax = rows.length > 1 && parseFloat(r.price) === maxPrice;
+                        return (
+                          <tr key={r.price_id}>
+                            <td style={{color:"var(--text3)",fontSize:12}}>{i+1}</td>
+                            <td><strong>{r.vendor_name}</strong></td>
+                            <td className="text-right fw-bold" style={{color: isMin?"var(--green)": isMax?"var(--red)":"var(--text)"}}>
+                              {fmt(r.price)} ฿
+                              {isMin && <span className="badge badge-green" style={{marginLeft:6,fontSize:10}}>ถูกสุด</span>}
+                              {isMax && rows.length > 1 && <span className="badge badge-orange" style={{marginLeft:6,fontSize:10}}>แพงสุด</span>}
+                            </td>
+                            <td style={{fontSize:12,color:"var(--text2)"}}>{r.quote_date ? thDate(r.quote_date) : "-"}</td>
+                            <td style={{fontSize:12,color:"var(--text2)"}}>{r.note||"-"}</td>
+                            <td>
+                              <div style={{display:"flex",gap:5}}>
+                                <button className="btn btn-ghost btn-xs" onClick={()=>openEdit(r)}>✏️</button>
+                                <button className="btn btn-danger btn-xs" onClick={()=>setConfirm({id:r.price_id,name:`${r.vendor_name} — ${r.item_name}`})}>🗑️</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
+          <div className="modal" style={{maxWidth:480}}>
+            <div className="modal-title">{editItem?"✏️ แก้ไขราคากลาง":"➕ เพิ่มราคากลาง"}</div>
+            <div className="field"><label>รายการสินค้า/บริการ *</label><input className="inp" value={form.item_name} onChange={e=>setForm({...form,item_name:e.target.value})} placeholder="เช่น ปูนซีเมนต์ 50 กก., ค่าจ้างแรงงาน"/></div>
+            <div className="field"><label>ชื่อบริษัท/ร้านค้า *</label><input className="inp" value={form.vendor_name} onChange={e=>setForm({...form,vendor_name:e.target.value})} placeholder="เช่น บริษัท ABC จำกัด, ร้านวัสดุก่อสร้าง XYZ"/></div>
+            <div className="field-row">
+              <div className="field"><label>ราคาที่เสนอ (฿) *</label><input className="inp" type="number" step="0.01" value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="0.00"/></div>
+              <div className="field"><label>วันที่สืบราคา</label><input className="inp" type="date" value={form.quote_date} onChange={e=>setForm({...form,quote_date:e.target.value})}/></div>
+            </div>
+            <div className="field"><label>หมายเหตุ</label><input className="inp" value={form.note} onChange={e=>setForm({...form,note:e.target.value})} placeholder="เงื่อนไข, รายละเอียดเพิ่มเติม..."/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={save} className="btn btn-primary" style={{flex:1,justifyContent:"center"}}>💾 บันทึก</button>
+              <button onClick={()=>setShowModal(false)} className="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirm && <Confirm msg={`ต้องการลบ "${confirm.name}" ใช่มั้ย?`} onOk={()=>del(confirm.id)} onCancel={()=>setConfirm(null)}/>}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
 //  APP ROOT
 // ════════════════════════════════════════════════════════════════
 const NAVS = [
-  { key:"dashboard",  icon:"📊", label:"แดชบอร์ด",  section:"หลัก" },
-  { key:"expenses",   icon:"💸", label:"ค่าใช้จ่าย",  section:"หลัก" },
-  { key:"summary",    icon:"📈", label:"สรุปรายงาน", section:"หลัก" },
-  { key:"projects",   icon:"📁", label:"โครงการ",    section:"ตั้งค่า" },
-  { key:"locations",  icon:"📍", label:"สนาม/จังหวัด",section:"ตั้งค่า" },
-  { key:"categories", icon:"🏷️", label:"หมวดหมู่",   section:"ตั้งค่า" },
+  { key:"dashboard",        icon:"📊", label:"แดชบอร์ด",    section:"หลัก" },
+  { key:"expenses",         icon:"💸", label:"ค่าใช้จ่าย",    section:"หลัก" },
+  { key:"summary",          icon:"📈", label:"สรุปรายงาน",   section:"หลัก" },
+  { key:"price_comparisons",icon:"🏷️", label:"ราคากลาง",     section:"หลัก" },
+  { key:"projects",         icon:"📁", label:"โครงการ",      section:"ตั้งค่า" },
+  { key:"locations",        icon:"📍", label:"สนาม/จังหวัด", section:"ตั้งค่า" },
+  { key:"categories",       icon:"🗂️", label:"หมวดหมู่",     section:"ตั้งค่า" },
 ];
 
 function App() {
@@ -1044,13 +1220,14 @@ function App() {
   const renderPage = () => {
     const props = { showFlash, setLoading };
     switch(page) {
-      case "dashboard":  return <Dashboard onNav={setPage}/>;
-      case "expenses":   return <ExpensesPage {...props}/>;
-      case "summary":    return <SummaryPage/>;
-      case "projects":   return <ProjectsPage {...props}/>;
-      case "locations":  return <LocationsPage {...props}/>;
-      case "categories": return <CategoriesPage {...props}/>;
-      default:           return <Dashboard onNav={setPage}/>;
+      case "dashboard":         return <Dashboard onNav={setPage}/>;
+      case "expenses":          return <ExpensesPage {...props}/>;
+      case "summary":           return <SummaryPage/>;
+      case "price_comparisons": return <PriceComparisonsPage {...props}/>;
+      case "projects":          return <ProjectsPage {...props}/>;
+      case "locations":         return <LocationsPage {...props}/>;
+      case "categories":        return <CategoriesPage {...props}/>;
+      default:                  return <Dashboard onNav={setPage}/>;
     }
   };
 
