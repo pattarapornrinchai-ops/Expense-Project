@@ -78,7 +78,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .card-sm{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
 
 /* ── STAT CARDS ── */
-.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
 @media(max-width:900px){.stat-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:500px){.stat-grid{grid-template-columns:1fr 1fr}}
 .stat-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 20px;position:relative;overflow:hidden}
@@ -276,7 +276,7 @@ function Dashboard({ onNav }) {
           {label:"โครงการทั้งหมด", value:fmtN(totalProjects||0), sub:"โครงการ", color:"var(--accent)"},
           {label:"รายการค่าใช้จ่าย", value:fmtN(totalExpenses||0), sub:"รายการ", color:"var(--blue)"},
           {label:"ยอดรวมทั้งหมด", value:fmt(totalAmount||0), sub:"บาท", color:"var(--green)"},
-          {label:"เฉลี่ยต่อรายการ", value:fmt(totalExpenses ? (totalAmount/totalExpenses) : 0), sub:"บาท/รายการ", color:"var(--yellow)"},
+
         ].map((s,i)=>(
           <div key={i} className="stat-card" style={{"--accent-bar":s.color}}>
             <div className="stat-label">{s.label}</div>
@@ -347,8 +347,8 @@ function Dashboard({ onNav }) {
                   <tr key={i}>
                     <td style={{whiteSpace:"nowrap",color:"var(--text2)",fontSize:12}}>{thDate(e.created_at)}</td>
                     <td><span className="badge badge-blue">{e.project_name}</span></td>
-                    <td style={{color:"var(--text2)"}}>{e.location}</td>
-                    <td><span className="badge badge-gray">{e.category}</span></td>
+                    <td style={{color:"var(--text2)"}}>{e.location_name}</td>
+                    <td><span className="badge badge-gray">{e.category_name}</span></td>
                     <td>{e.description}</td>
                     <td className="text-right fw-bold" style={{color:"var(--accent)"}}>{fmt(e.total_amount)} ฿</td>
                   </tr>
