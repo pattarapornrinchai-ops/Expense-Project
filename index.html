@@ -1229,29 +1229,6 @@ function PriceComparisonsPage({ showFlash, setLoading }) {
       )}
 
       {/* AI Parse Modal */}
-      {showAiModal && (
-        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowAiModal(false)}>
-          <div className="modal" style={{maxWidth:500}}>
-            <div className="modal-title">✨ AI กรอกค่าใช้จ่ายให้</div>
-            <div style={{fontSize:13,color:"var(--text2)",marginBottom:14,lineHeight:1.6}}>
-              พิมพ์รายการค่าใช้จ่ายเป็นข้อความธรรมดา แล้ว AI จะแปลงให้อัตโนมัติ<br/>
-              <span style={{color:"var(--text3)"}}>ตัวอย่าง: "ค่าแรงทีมงาน สนามเชียงใหม่ โครงการ A 3,500 บาท"</span>
-            </div>
-            <div className="field">
-              <label>ข้อความรายการค่าใช้จ่าย</label>
-              <textarea className="inp" rows={4} value={aiText} onChange={e=>setAiText(e.target.value)}
-                placeholder="เช่น: ซื้อเสื้อทีม 50 ตัว ตัวละ 200 บาท, ค่าจ้างแรงงานสนามขอนแก่น 5,000 บาท โครงการ B..."/>
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={aiParse} disabled={aiLoading} className="btn btn-primary" style={{flex:1,justifyContent:"center",background:"linear-gradient(135deg,#667eea,#764ba2)",border:"none"}}>
-                {aiLoading ? <span className="spin">⏳</span> : "✨"} {aiLoading ? "กำลังวิเคราะห์..." : "ให้ AI กรอกให้"}
-              </button>
-              <button onClick={()=>setShowAiModal(false)} className="btn btn-ghost">ยกเลิก</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
