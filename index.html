@@ -661,27 +661,33 @@ function ExpensesPage({ showFlash, setLoading }) {
   const [projects, setProjects] = useState([]);
   const [locations, setLocations] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loc, setLoc] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [filter, setFilter] = useState({ project_id:"", location_id:"", category_id:"", search:"" });
+  const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [supplierForm, setSupplierForm] = useState({ name:"", status:"บุคคลธรรมดา", tags:"", phone:"", contact_name:"", line_id:"", note:"" });
+  const [supplierTags, setSupplierTags] = useState([]);
 
-  const blank = { project_id:"", location_id:"", category_id:"", description:"", unit_price:"", quantity:"1", note:"", file_quote:"", file_slip:"", expense_date:"" };
+  const blank = { project_id:"", location_id:"", category_id:"", supplier_id:"", description:"", unit_price:"", quantity:"1", note:"", file_quote:"", file_slip:"", expense_date:"" };
   const [form, setForm] = useState(blank);
 
   const load = async () => {
     setLoc(true);
-    const [er, pr, lr, cr] = await Promise.all([
+    const [er, pr, lr, cr, sr] = await Promise.all([
       apiGet({ action:"getExpenses" }),
       apiGet({ action:"getProjects" }),
       apiGet({ action:"getLocations" }),
       apiGet({ action:"getCategories" }),
+      apiGet({ action:"getSuppliers" }),
     ]);
     if(er.ok) setExpenses(er.data);
     if(pr.ok) setProjects(pr.data);
     if(lr.ok) setLocations(lr.data);
     if(cr.ok) setCategories(cr.data);
+    if(sr.ok) setSuppliers(sr.data);
     setLoc(false);
   };
   useEffect(() => { load(); }, []);
@@ -704,7 +710,7 @@ function ExpensesPage({ showFlash, setLoading }) {
 
   const openAdd = () => { setForm(blank); setEditItem(null); setShowModal(true); };
   const openEdit = e => {
-    setForm({ project_id:e.project_id, location_id:e.location_id, category_id:e.category_id, description:e.description, unit_price:e.unit_price, quantity:e.quantity, note:e.note||"", file_quote:e.file_quote||"", file_slip:e.file_slip||"", expense_date:e.expense_date||"" });
+    setForm({ project_id:e.project_id, location_id:e.location_id, category_id:e.category_id, supplier_id:e.supplier_id||"", description:e.description, unit_price:e.unit_price, quantity:e.quantity, note:e.note||"", file_quote:e.file_quote||"", file_slip:e.file_slip||"", expense_date:e.expense_date||"" });
     setEditItem(e); setShowModal(true);
   };
 
@@ -753,6 +759,23 @@ function ExpensesPage({ showFlash, setLoading }) {
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false); setConfirm(null);
   };
+
+  const saveSupplierInline = async () => {
+    if(!supplierForm.name){ showFlash("กรุณากรอกชื่อร้าน/บริษัท","err"); return; }
+    setLoading(true);
+    const r = await apiPost({ action:"addSupplier", ...supplierForm, tags: supplierTags.join(",") });
+    if(r.ok){
+      showFlash("เพิ่มซัพพลายเออร์สำเร็จ ✓");
+      const sr = await apiGet({ action:"getSuppliers" });
+      if(sr.ok){ setSuppliers(sr.data); setForm({...form, supplier_id: r.id}); }
+      setShowSupplierModal(false);
+      setSupplierForm({ name:"", status:"บุคคลธรรมดา", tags:"", phone:"", contact_name:"", line_id:"", note:"" });
+      setSupplierTags([]);
+    } else showFlash(r.error||"เกิดข้อผิดพลาด","err");
+    setLoading(false);
+  };
+
+  const selectedSupplier = useMemo(() => suppliers.find(s=>s.supplier_id===form.supplier_id), [suppliers, form.supplier_id]);
 
   return (
     <div className="page fade-in">
@@ -877,6 +900,27 @@ function ExpensesPage({ showFlash, setLoading }) {
           <div className="modal">
             <div className="modal-title">{editItem?"✏️ แก้ไขรายจ่าย":"➕ บันทึกรายจ่ายใหม่"}</div>
 
+            {/* Supplier Selector */}
+            <div className="field">
+              <label>ซัพพลายเออร์/ร้านค้า/บริษัท</label>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <select className="inp" style={{flex:1}} value={form.supplier_id} onChange={e=>setForm({...form,supplier_id:e.target.value})}>
+                  <option value="">— ไม่ระบุ / จ่ายทั่วไป —</option>
+                  {suppliers.map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.name}{s.status==="นิติบุคคล"?" (นิติบุคคล)":""}</option>)}
+                </select>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={()=>setShowSupplierModal(true)} style={{whiteSpace:"nowrap"}}>＋ เพิ่มใหม่</button>
+              </div>
+              {selectedSupplier && (
+                <div className="card-sm" style={{marginTop:8,background:"#f0f7ff",border:"1px solid #c0d8f0",display:"flex",gap:16,flexWrap:"wrap"}}>
+                  {selectedSupplier.contact_name && <span style={{fontSize:12}}><strong>👤</strong> {selectedSupplier.contact_name}</span>}
+                  {selectedSupplier.phone && <span style={{fontSize:12}}><strong>📞</strong> <a href={`tel:${selectedSupplier.phone}`} style={{color:"var(--blue)"}}>{selectedSupplier.phone}</a></span>}
+                  {selectedSupplier.line_id && <span style={{fontSize:12}}><strong>💬</strong> {selectedSupplier.line_id}</span>}
+                  {selectedSupplier.note && <span style={{fontSize:12,color:"var(--text2)"}}>{selectedSupplier.note}</span>}
+                  <span className={`badge ${selectedSupplier.status==="นิติบุคคล"?"badge-blue":"badge-gray"}`} style={{fontSize:10}}>{selectedSupplier.status||"บุคคลธรรมดา"}</span>
+                </div>
+              )}
+            </div>
+
             <div className="field-row">
               <div className="field">
                 <label>โครงการ *</label>
@@ -943,6 +987,43 @@ function ExpensesPage({ showFlash, setLoading }) {
         </div>
       )}
       {confirm && <Confirm msg={`ต้องการลบ "${confirm.name}" ใช่มั้ย?`} onOk={()=>del(confirm.id)} onCancel={()=>setConfirm(null)}/>}
+
+      {/* Inline Add Supplier Modal */}
+      {showSupplierModal && (
+        <div className="modal-backdrop" style={{zIndex:600}} onClick={e=>e.target===e.currentTarget&&setShowSupplierModal(false)}>
+          <div className="modal" style={{maxWidth:500}}>
+            <div className="modal-title">➕ เพิ่มซัพพลายเออร์ใหม่</div>
+            <div className="field"><label>ชื่อร้าน/บริษัท *</label><input className="inp" value={supplierForm.name} onChange={e=>setSupplierForm({...supplierForm,name:e.target.value})} placeholder="เช่น ร้าน ABC, บริษัท XYZ จำกัด"/></div>
+            <div className="field">
+              <label>ประเภท</label>
+              <div style={{display:"flex",gap:10}}>
+                {["บุคคลธรรมดา","นิติบุคคล"].map(s=>(
+                  <button key={s} onClick={()=>setSupplierForm({...supplierForm,status:s})}
+                    className={`btn btn-sm ${supplierForm.status===s?"btn-primary":"btn-ghost"}`}>{s}</button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label>ประเภทงาน</label>
+              <div className="chip-row" style={{marginTop:6}}>
+                {["ขนส่ง","Staff","อาหาร","เบรค/ผลไม้","เครื่องดื่ม/น้ำแข็ง","วัสดุก่อสร้าง","ช่างไฟ","ช่างเสียง","ถ่ายภาพ","อื่นๆ"].map(t=>(
+                  <button key={t} onClick={()=>setSupplierTags(prev=>prev.includes(t)?prev.filter(x=>x!==t):[...prev,t])}
+                    className={`btn btn-xs ${supplierTags.includes(t)?"btn-primary":"btn-ghost"}`}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div className="field-row">
+              <div className="field"><label>ชื่อผู้ติดต่อ</label><input className="inp" value={supplierForm.contact_name} onChange={e=>setSupplierForm({...supplierForm,contact_name:e.target.value})} placeholder="ชื่อ-นามสกุล"/></div>
+              <div className="field"><label>เบอร์โทร</label><input className="inp" value={supplierForm.phone} onChange={e=>setSupplierForm({...supplierForm,phone:e.target.value})} placeholder="08x-xxx-xxxx"/></div>
+            </div>
+            <div className="field"><label>หมายเหตุ</label><input className="inp" value={supplierForm.note} onChange={e=>setSupplierForm({...supplierForm,note:e.target.value})} placeholder="เช่น สั่งล่วงหน้า 3 วัน"/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={saveSupplierInline} className="btn btn-primary" style={{flex:1,justifyContent:"center"}}>💾 บันทึกและเลือก</button>
+              <button onClick={()=>setShowSupplierModal(false)} className="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1079,168 +1160,168 @@ function SummaryPage() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  PRICE COMPARISONS PAGE (ราคากลาง)
+//  SUPPLIERS PAGE (ซัพพลายเออร์)
 // ════════════════════════════════════════════════════════════════
-function PriceComparisonsPage({ showFlash, setLoading }) {
-  const [items, setItems] = useState([]);
+const TAGS = ["ขนส่ง","Staff","อาหาร","เบรค/ผลไม้","เครื่องดื่ม/น้ำแข็ง","วัสดุก่อสร้าง","ช่างไฟ","ช่างเสียง","ถ่ายภาพ","ประชาสัมพันธ์","อื่นๆ"];
+
+function SuppliersPage({ showFlash, setLoading }) {
+  const [suppliers, setSuppliers] = useState([]);
   const [loc, setLoc] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [search, setSearch] = useState("");
-  const blank = { item_name:"", vendor_name:"", price:"", quote_date:"", note:"" };
+  const [filterTag, setFilterTag] = useState("");
+  const blank = { name:"", status:"บุคคลธรรมดา", tags:"", phone:"", contact_name:"", line_id:"", note:"" };
   const [form, setForm] = useState(blank);
+  const [selectedTags, setSelectedTags] = useState([]);
 
   const load = async () => {
     setLoc(true);
-    const r = await apiGet({ action:"getPriceComparisons" });
-    if(r.ok) setItems(r.data);
+    const r = await apiGet({ action:"getSuppliers" });
+    if(r.ok) setSuppliers(r.data);
     setLoc(false);
   };
   useEffect(() => { load(); }, []);
 
-  const openAdd = () => { setForm(blank); setEditItem(null); setShowModal(true); };
-  const openEdit = item => {
-    setForm({ item_name:item.item_name, vendor_name:item.vendor_name, price:item.price, quote_date:item.quote_date||"", note:item.note||"" });
-    setEditItem(item); setShowModal(true);
+  const openAdd = () => { setForm(blank); setSelectedTags([]); setEditItem(null); setShowModal(true); };
+  const openEdit = s => {
+    setForm({ name:s.name, status:s.status||"บุคคลธรรมดา", tags:s.tags||"", phone:s.phone||"", contact_name:s.contact_name||"", line_id:s.line_id||"", note:s.note||"" });
+    setSelectedTags(s.tags ? s.tags.split(",").filter(Boolean) : []);
+    setEditItem(s); setShowModal(true);
+  };
+
+  const toggleTag = tag => {
+    setSelectedTags(prev => prev.includes(tag) ? prev.filter(t=>t!==tag) : [...prev, tag]);
   };
 
   const save = async () => {
-    if(!form.item_name || !form.vendor_name || !form.price) {
-      showFlash("กรุณากรอกรายการ, ชื่อบริษัท และราคา","err"); return;
-    }
+    if(!form.name){ showFlash("กรุณากรอกชื่อร้าน/บริษัท","err"); return; }
     setLoading(true);
-    const r = await apiPost({ action: editItem ? "editPriceComparison" : "addPriceComparison", ...form, price_id: editItem?.price_id });
-    if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"เพิ่มราคากลางสำเร็จ ✓"); setShowModal(false); await load(); }
+    const payload = { ...form, tags: selectedTags.join(","), supplier_id: editItem?.supplier_id };
+    const r = await apiPost({ action: editItem ? "editSupplier" : "addSupplier", ...payload });
+    if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"เพิ่มซัพพลายเออร์สำเร็จ ✓"); setShowModal(false); await load(); }
     else showFlash(r.error||"เกิดข้อผิดพลาด","err");
     setLoading(false);
   };
 
   const del = async id => {
     setLoading(true);
-    const r = await apiPost({ action:"deletePriceComparison", price_id:id });
+    const r = await apiPost({ action:"deleteSupplier", supplier_id:id });
     if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false); setConfirm(null);
   };
 
-  // Group by item_name for comparison view
-  const filtered = useMemo(() => items.filter(it => {
-    if(!search) return true;
-    return `${it.item_name}${it.vendor_name}${it.note}`.toLowerCase().includes(search.toLowerCase());
-  }), [items, search]);
+  const allTags = useMemo(() => {
+    const set = new Set();
+    suppliers.forEach(s => (s.tags||"").split(",").filter(Boolean).forEach(t => set.add(t)));
+    return [...set];
+  }, [suppliers]);
 
-  const grouped = useMemo(() => {
-    const map = {};
-    filtered.forEach(it => {
-      const key = it.item_name;
-      if(!map[key]) map[key] = [];
-      map[key].push(it);
-    });
-    return map;
-  }, [filtered]);
+  const filtered = useMemo(() => suppliers.filter(s => {
+    if(search && !`${s.name}${s.contact_name}${s.phone}${s.tags}`.toLowerCase().includes(search.toLowerCase())) return false;
+    if(filterTag && !(s.tags||"").split(",").includes(filterTag)) return false;
+    return true;
+  }), [suppliers, search, filterTag]);
 
   return (
     <div className="page fade-in">
       <div className="flex-between page-header">
-        <div>
-          <div className="page-title">ราคากลาง</div>
-          <div className="page-subtitle">รวบรวมราคาจากหลายบริษัทเพื่อเปรียบเทียบ (ไม่นับรวมในยอดค่าใช้จ่าย)</div>
-        </div>
-        <button className="btn btn-primary" onClick={openAdd}>＋ เพิ่มราคากลาง</button>
+        <div><div className="page-title">ซัพพลายเออร์</div><div className="page-subtitle">รายชื่อร้านค้า/บริษัทที่ใช้งาน</div></div>
+        <button className="btn btn-primary" onClick={openAdd}>＋ เพิ่มซัพพลายเออร์</button>
       </div>
 
-      {/* Search */}
       <div className="filter-bar">
-        <input className="inp inp-sm" style={{minWidth:220}} placeholder="🔍 ค้นหารายการหรือบริษัท..." value={search} onChange={e=>setSearch(e.target.value)}/>
-        {search && <button className="btn btn-ghost btn-sm" onClick={()=>setSearch("")}>✕ ล้าง</button>}
+        <input className="inp inp-sm" style={{minWidth:200}} placeholder="🔍 ค้นหาชื่อ เบอร์ ผู้ติดต่อ..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <select className="inp inp-sm" value={filterTag} onChange={e=>setFilterTag(e.target.value)}>
+          <option value="">🏷️ ทุกประเภทงาน</option>
+          {allTags.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        {(search||filterTag) && <button className="btn btn-ghost btn-sm" onClick={()=>{setSearch("");setFilterTag("");}}>✕ ล้าง</button>}
       </div>
 
       {loc ? (
-        <div style={{display:"grid",gap:14}}>{[1,2].map(i=><div key={i} className="skeleton" style={{height:120}}/>)}</div>
+        <div style={{display:"grid",gap:12}}>{[1,2,3].map(i=><div key={i} className="skeleton" style={{height:80}}/>)}</div>
       ) : filtered.length === 0 ? (
-        <div className="card empty">
-          <div className="empty-icon">🏷️</div>
-          <div>{search ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีข้อมูลราคากลาง กดปุ่ม \"เพิ่มราคากลาง\" เพื่อเริ่มต้น"}</div>
-        </div>
+        <div className="card empty"><div className="empty-icon">🤝</div><div>{search||filterTag ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีซัพพลายเออร์ กดปุ่ม "เพิ่มซัพพลายเออร์" เพื่อเริ่มต้น"}</div></div>
       ) : (
-        <div style={{display:"grid",gap:18}}>
-          {Object.entries(grouped).map(([itemName, rows]) => {
-            const minPrice = Math.min(...rows.map(r=>parseFloat(r.price)||0));
-            const maxPrice = Math.max(...rows.map(r=>parseFloat(r.price)||0));
-            return (
-              <div key={itemName} className="card">
-                {/* Item header */}
-                <div className="flex-between" style={{marginBottom:14}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{fontFamily:"'Kanit',sans-serif",fontSize:16,fontWeight:700}}>{itemName}</div>
-                    <span className="badge badge-gray">{rows.length} บริษัท</span>
-                  </div>
-                  <div style={{fontSize:12,color:"var(--text2)"}}>
-                    ราคาต่ำสุด <strong style={{color:"var(--green)"}}>{fmt(minPrice)} ฿</strong>
-                    {rows.length > 1 && <> — สูงสุด <strong style={{color:"var(--red)"}}>{fmt(maxPrice)} ฿</strong></>}
-                  </div>
-                </div>
-
-                {/* Vendor table */}
-                <div className="tbl-wrap">
-                  <table className="tbl">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>บริษัท/ร้านค้า</th>
-                        <th className="text-right">ราคาที่เสนอ</th>
-                        <th>วันที่สืบราคา</th>
-                        <th>หมายเหตุ</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r,i) => {
-                        const isMin = rows.length > 1 && parseFloat(r.price) === minPrice;
-                        const isMax = rows.length > 1 && parseFloat(r.price) === maxPrice;
-                        return (
-                          <tr key={r.price_id}>
-                            <td style={{color:"var(--text3)",fontSize:12}}>{i+1}</td>
-                            <td><strong>{r.vendor_name}</strong></td>
-                            <td className="text-right fw-bold" style={{color: isMin?"var(--green)": isMax?"var(--red)":"var(--text)"}}>
-                              {fmt(r.price)} ฿
-                              {isMin && <span className="badge badge-green" style={{marginLeft:6,fontSize:10}}>ถูกสุด</span>}
-                              {isMax && rows.length > 1 && <span className="badge badge-orange" style={{marginLeft:6,fontSize:10}}>แพงสุด</span>}
-                            </td>
-                            <td style={{fontSize:12,color:"var(--text2)"}}>{r.quote_date ? thDate(r.quote_date) : "-"}</td>
-                            <td style={{fontSize:12,color:"var(--text2)"}}>{r.note||"-"}</td>
-                            <td>
-                              <div style={{display:"flex",gap:5}}>
-                                <button className="btn btn-ghost btn-xs" onClick={()=>openEdit(r)}>✏️</button>
-                                <button className="btn btn-danger btn-xs" onClick={()=>setConfirm({id:r.price_id,name:`${r.vendor_name} — ${r.item_name}`})}>🗑️</button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
+        <div className="tbl-wrap tbl-wrap-scroll">
+          <table className="tbl">
+            <thead>
+              <tr><th>#</th><th>ชื่อร้าน/บริษัท</th><th>ประเภท</th><th>ประเภทงาน</th><th>ผู้ติดต่อ</th><th>เบอร์โทร</th><th>Line ID</th><th>หมายเหตุ</th><th></th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((s,i) => (
+                <tr key={s.supplier_id}>
+                  <td style={{color:"var(--text3)",fontSize:12}}>{i+1}</td>
+                  <td><strong>{s.name}</strong></td>
+                  <td>
+                    <span className={`badge ${s.status==="นิติบุคคล"?"badge-blue":"badge-gray"}`}>{s.status||"บุคคลธรรมดา"}</span>
+                  </td>
+                  <td>
+                    <div className="chip-row">
+                      {(s.tags||"").split(",").filter(Boolean).map(t=>(
+                        <span key={t} className="badge badge-orange" style={{fontSize:10}}>{t}</span>
+                      ))}
+                    </div>
+                  </td>
+                  <td style={{fontSize:13}}>{s.contact_name||"-"}</td>
+                  <td style={{fontSize:13}}>{s.phone ? <a href={`tel:${s.phone}`} style={{color:"var(--blue)"}}>{s.phone}</a> : "-"}</td>
+                  <td style={{fontSize:13}}>{s.line_id||"-"}</td>
+                  <td style={{fontSize:12,color:"var(--text2)",maxWidth:160}}>{s.note||"-"}</td>
+                  <td>
+                    <div style={{display:"flex",gap:5}}>
+                      <button className="btn btn-ghost btn-xs" onClick={()=>openEdit(s)}>✏️</button>
+                      <button className="btn btn-danger btn-xs" onClick={()=>setConfirm({id:s.supplier_id,name:s.name})}>🗑️</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* AI Parse Modal */}
-      {/* Add/Edit Modal */}
       {showModal && (
         <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
-          <div className="modal" style={{maxWidth:480}}>
-            <div className="modal-title">{editItem?"✏️ แก้ไขราคากลาง":"➕ เพิ่มราคากลาง"}</div>
-            <div className="field"><label>รายการสินค้า/บริการ *</label><input className="inp" value={form.item_name} onChange={e=>setForm({...form,item_name:e.target.value})} placeholder="เช่น ปูนซีเมนต์ 50 กก., ค่าจ้างแรงงาน"/></div>
-            <div className="field"><label>ชื่อบริษัท/ร้านค้า *</label><input className="inp" value={form.vendor_name} onChange={e=>setForm({...form,vendor_name:e.target.value})} placeholder="เช่น บริษัท ABC จำกัด, ร้านวัสดุก่อสร้าง XYZ"/></div>
+          <div className="modal" style={{maxWidth:560}}>
+            <div className="modal-title">{editItem?"✏️ แก้ไขซัพพลายเออร์":"➕ เพิ่มซัพพลายเออร์ใหม่"}</div>
+
             <div className="field-row">
-              <div className="field"><label>ราคาที่เสนอ (฿) *</label><input className="inp" type="number" step="0.01" value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="0.00"/></div>
-              <div className="field"><label>วันที่สืบราคา</label><input className="inp" type="date" value={form.quote_date} onChange={e=>setForm({...form,quote_date:e.target.value})}/></div>
+              <div className="field" style={{gridColumn:"1/-1"}}><label>ชื่อร้าน/บริษัท *</label><input className="inp" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="เช่น ร้านวัสดุก่อสร้างไทย, บริษัท ABC จำกัด"/></div>
             </div>
-            <div className="field"><label>หมายเหตุ</label><input className="inp" value={form.note} onChange={e=>setForm({...form,note:e.target.value})} placeholder="เงื่อนไข, รายละเอียดเพิ่มเติม..."/></div>
+
+            <div className="field">
+              <label>ประเภท</label>
+              <div style={{display:"flex",gap:10}}>
+                {["บุคคลธรรมดา","นิติบุคคล"].map(s=>(
+                  <button key={s} onClick={()=>setForm({...form,status:s})}
+                    className={`btn btn-sm ${form.status===s?"btn-primary":"btn-ghost"}`}>{s}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>ประเภทงาน (เลือกได้หลายอย่าง)</label>
+              <div className="chip-row" style={{marginTop:6}}>
+                {TAGS.map(t=>(
+                  <button key={t} onClick={()=>toggleTag(t)}
+                    className={`btn btn-xs ${selectedTags.includes(t)?"btn-primary":"btn-ghost"}`}>{t}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field-row">
+              <div className="field"><label>ชื่อผู้ติดต่อ</label><input className="inp" value={form.contact_name} onChange={e=>setForm({...form,contact_name:e.target.value})} placeholder="ชื่อ-นามสกุล"/></div>
+              <div className="field"><label>เบอร์โทร</label><input className="inp" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="08x-xxx-xxxx"/></div>
+            </div>
+
+            <div className="field-row">
+              <div className="field"><label>Line ID</label><input className="inp" value={form.line_id} onChange={e=>setForm({...form,line_id:e.target.value})} placeholder="@lineid"/></div>
+              <div className="field"><label>หมายเหตุ</label><input className="inp" value={form.note} onChange={e=>setForm({...form,note:e.target.value})} placeholder="เช่น สั่งล่วงหน้า 3 วัน, รับเงินสดเท่านั้น"/></div>
+            </div>
+
             <div style={{display:"flex",gap:10}}>
               <button onClick={save} className="btn btn-primary" style={{flex:1,justifyContent:"center"}}>💾 บันทึก</button>
               <button onClick={()=>setShowModal(false)} className="btn btn-ghost">ยกเลิก</button>
@@ -1260,7 +1341,7 @@ const NAVS = [
   { key:"dashboard",        icon:"📊", label:"แดชบอร์ด",    section:"หลัก" },
   { key:"expenses",         icon:"💸", label:"ค่าใช้จ่าย",    section:"หลัก" },
   { key:"summary",          icon:"📈", label:"สรุปรายงาน",   section:"หลัก" },
-  { key:"price_comparisons",icon:"🏷️", label:"ราคากลาง",     section:"หลัก" },
+  { key:"suppliers",        icon:"🤝", label:"ซัพพลายเออร์",  section:"หลัก" },
   { key:"projects",         icon:"📁", label:"โครงการ",      section:"ตั้งค่า" },
   { key:"locations",        icon:"📍", label:"สนาม/จังหวัด", section:"ตั้งค่า" },
   { key:"categories",       icon:"🗂️", label:"หมวดหมู่",     section:"ตั้งค่า" },
@@ -1282,7 +1363,7 @@ function App() {
       case "dashboard":         return <Dashboard onNav={setPage}/>;
       case "expenses":          return <ExpensesPage {...props}/>;
       case "summary":           return <SummaryPage/>;
-      case "price_comparisons": return <PriceComparisonsPage {...props}/>;
+      case "suppliers":         return <SuppliersPage {...props}/>;
       case "projects":          return <ProjectsPage {...props}/>;
       case "locations":         return <LocationsPage {...props}/>;
       case "categories":        return <CategoriesPage {...props}/>;
