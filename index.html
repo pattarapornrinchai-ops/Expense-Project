@@ -1421,7 +1421,6 @@ function SuppliersPage({ showFlash, setLoading }) {
 function PriceInquiryPage({ showFlash, setLoading }) {
   const [inquiries, setInquiries]   = useState([]);
   const [quotes, setQuotes]         = useState([]);
-  const [suppliers, setSuppliers]   = useState([]);
   const [tags, setTags]             = useState([]);
   const [loc, setLoc]               = useState(true);
   const [search, setSearch]         = useState("");
@@ -1437,7 +1436,7 @@ function PriceInquiryPage({ showFlash, setLoading }) {
   const [showQuoteModal, setShowQuoteModal] = useState(false);
   const [editQuote, setEditQuote]           = useState(null);
   const [activeInquiry, setActiveInquiry]   = useState(null);
-  const [quoteForm, setQuoteForm]           = useState({ supplier_id:"", price:"", unit:"", quote_date:"", file_url:"", note:"" });
+  const [quoteForm, setQuoteForm]           = useState({ supplier_id:"", supplier_name:"", phone:"", description:"", price:"", unit:"", quote_date:"", file_url:"", note:"" });
 
   // Add tag modal
   const [showTagModal, setShowTagModal] = useState(false);
@@ -1448,15 +1447,13 @@ function PriceInquiryPage({ showFlash, setLoading }) {
 
   const load = async () => {
     setLoc(true);
-    const [ir, qr, sr, tr] = await Promise.all([
+    const [ir, qr, tr] = await Promise.all([
       sbGet("price_inquiries", "?order=created_at.desc"),
       sbGet("inquiry_quotes",  "?order=created_at.asc"),
-      sbGet("suppliers",       "?order=name.asc&select=supplier_id,name"),
       sbGet("inquiry_tags",    "?order=tag_name.asc"),
     ]);
     if(ir.ok) setInquiries(ir.data);
     if(qr.ok) setQuotes(qr.data);
-    if(sr.ok) setSuppliers(sr.data);
     if(tr.ok) setTags(tr.data);
     setLoc(false);
   };
@@ -1502,27 +1499,28 @@ function PriceInquiryPage({ showFlash, setLoading }) {
 
   // ── Quote CRUD ──
   const openAddQuote = inq => {
-    setQuoteForm({ supplier_id:"", price:"", unit:"", quote_date:"", file_url:"", note:"" });
+    setQuoteForm({ supplier_id:"", supplier_name:"", phone:"", description:"", price:"", unit:"", quote_date:"", file_url:"", note:"" });
     setEditQuote(null); setActiveInquiry(inq); setShowQuoteModal(true);
   };
   const openEditQuote = (q, inq) => {
-    setQuoteForm({ supplier_id:q.supplier_id||"", price:q.price, unit:q.unit||"", quote_date:q.quote_date||"", file_url:q.file_url||"", note:q.note||"" });
+    setQuoteForm({ supplier_id:q.supplier_id||"", supplier_name:q.supplier_name||"", phone:q.phone||"", description:q.description||"", price:q.price, unit:q.unit||"", quote_date:q.quote_date||"", file_url:q.file_url||"", note:q.note||"" });
     setEditQuote(q); setActiveInquiry(inq); setShowQuoteModal(true);
   };
 
   const saveQuote = async () => {
+    if(!quoteForm.supplier_name.trim()){ showFlash("กรุณากรอกชื่อบริษัท/ร้านค้า","err"); return; }
     if(!quoteForm.price){ showFlash("กรุณากรอกราคา","err"); return; }
     setLoading(true);
-    const sup = suppliers.find(s=>s.supplier_id===quoteForm.supplier_id);
     const payload = {
-      inquiry_id: activeInquiry.inquiry_id,
-      supplier_id: quoteForm.supplier_id||null,
-      supplier_name: sup?.name||quoteForm.supplier_name||"",
-      price: parseFloat(quoteForm.price)||0,
-      unit: quoteForm.unit||"",
-      quote_date: quoteForm.quote_date||null,
-      file_url: quoteForm.file_url||"",
-      note: quoteForm.note||"",
+      inquiry_id:    activeInquiry.inquiry_id,
+      supplier_name: quoteForm.supplier_name.trim(),
+      phone:         quoteForm.phone||"",
+      description:   quoteForm.description||"",
+      price:         parseFloat(quoteForm.price)||0,
+      unit:          quoteForm.unit||"",
+      quote_date:    quoteForm.quote_date||null,
+      file_url:      quoteForm.file_url||"",
+      note:          quoteForm.note||"",
     };
     const r = editQuote
       ? await sbPatch("inquiry_quotes","quote_id",editQuote.quote_id, payload)
@@ -1616,7 +1614,7 @@ function PriceInquiryPage({ showFlash, setLoading }) {
                   <div className="tbl-wrap">
                     <table className="tbl">
                       <thead>
-                        <tr><th>บริษัท/ร้านค้า</th><th className="text-right">ราคา</th><th>หน่วย</th><th>วันที่</th><th>ใบเสนอราคา</th><th>หมายเหตุ</th><th></th></tr>
+                        <tr><th>บริษัท/ร้านค้า</th><th>เบอร์โทร</th><th>รายละเอียด</th><th className="text-right">ราคา</th><th>หน่วย</th><th>วันที่</th><th>ใบเสนอราคา</th><th>หมายเหตุ</th><th></th></tr>
                       </thead>
                       <tbody>
                         {inqQuotes.map(q => {
@@ -1625,6 +1623,10 @@ function PriceInquiryPage({ showFlash, setLoading }) {
                           return (
                             <tr key={q.quote_id}>
                               <td><strong>{q.supplier_name||"-"}</strong></td>
+                              <td style={{fontSize:12}}>
+                                {q.phone ? <a href={`tel:${q.phone}`} style={{color:"var(--blue)"}}>{q.phone}</a> : <span style={{color:"var(--text3)"}}>-</span>}
+                              </td>
+                              <td style={{fontSize:12,color:"var(--text2)",maxWidth:180}}>{q.description||"-"}</td>
                               <td className="text-right fw-bold" style={{color:isMin?"var(--green)":isMax?"var(--red)":"var(--text)"}}>
                                 {fmt(q.price)} ฿
                                 {isMin && <span className="badge badge-green" style={{marginLeft:6,fontSize:10}}>ถูกสุด</span>}
@@ -1690,14 +1692,19 @@ function PriceInquiryPage({ showFlash, setLoading }) {
       {showQuoteModal && (
         <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowQuoteModal(false)}>
           <div className="modal" style={{maxWidth:500}}>
-            <div className="modal-title">{editQuote?"✏️ แก้ไขราคา":"➕ เพิ่มราคาจากบริษัท"}</div>
+            <div className="modal-title">{editQuote?"✏️ แก้ไขราคา":"➕ บันทึกราคาที่สืบได้"}</div>
             {activeInquiry && <div style={{fontSize:13,color:"var(--text2)",marginBottom:14}}>รายการ: <strong>{activeInquiry.item_name}</strong></div>}
             <div className="field">
-              <label>บริษัท/ร้านค้า</label>
-              <select className="inp" value={quoteForm.supplier_id} onChange={e=>setQuoteForm({...quoteForm,supplier_id:e.target.value})}>
-                <option value="">— เลือกซัพพลายเออร์ —</option>
-                {suppliers.map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>)}
-              </select>
+              <label>ชื่อบริษัท/ร้านค้า *</label>
+              <input className="inp" value={quoteForm.supplier_name} onChange={e=>setQuoteForm({...quoteForm,supplier_name:e.target.value})} placeholder="เช่น ร้านน้ำแข็งสมชาย, บริษัท ABC จำกัด"/>
+            </div>
+            <div className="field">
+              <label>📞 เบอร์โทร</label>
+              <input className="inp" value={quoteForm.phone} onChange={e=>setQuoteForm({...quoteForm,phone:e.target.value})} placeholder="08x-xxx-xxxx"/>
+            </div>
+            <div className="field">
+              <label>รายละเอียดสินค้า/บริการ</label>
+              <textarea className="inp" rows={2} value={quoteForm.description} onChange={e=>setQuoteForm({...quoteForm,description:e.target.value})} placeholder="เช่น น้ำแข็งหลอดใหญ่ 25 กก./ถุง, ส่งถึงสนาม, ชำระปลายทาง"/>
             </div>
             <div className="field-row">
               <div className="field"><label>ราคา (฿) *</label><input className="inp" type="number" step="0.01" value={quoteForm.price} onChange={e=>setQuoteForm({...quoteForm,price:e.target.value})} placeholder="0.00"/></div>
