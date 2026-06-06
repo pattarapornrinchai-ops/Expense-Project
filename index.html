@@ -191,26 +191,65 @@ textarea.inp{resize:vertical;min-height:80px}
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
 // ── CONFIG ──────────────────────────────────────────────────────
-const GAS_URL = "https://script.google.com/macros/s/AKfycbyVgAvVhzGVtqyUOZZvku_JrHEM4M9UgE_czU7e5_63-e98Rv3wgZsXyRvYShPAVtvx/exec"; // ← ใส่ URL ของ Apps Script
+const SUPABASE_URL = "https://lytlvcjiwzlthfibuypr.supabase.co";
+const SUPABASE_KEY = "sb_publishable_TiF_bijZBPRqxR68Bl6pFw_5UMHWsnc"; // ← ใส่ key ที่ regenerate มา
 
-// ── API ─────────────────────────────────────────────────────────
-async function apiGet(params) {
-  const res = await fetch(`${GAS_URL}?${new URLSearchParams(params)}`, {
-    method: "GET",
-    redirect: "follow",   // ← สำคัญมาก GAS มี redirect
-  });
-  return res.json();
+// ── SUPABASE API ─────────────────────────────────────────────────
+const sbHeaders = () => ({
+  "Content-Type": "application/json",
+  "apikey": SUPABASE_KEY,
+  "Authorization": `Bearer ${SUPABASE_KEY}`,
+  "Prefer": "return=representation",
+});
+
+async function sbGet(table, params = "") {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, {
+      headers: { ...sbHeaders(), "Prefer": "" }
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.message || JSON.stringify(data) };
+    return { ok: true, data };
+  } catch(e) { return { ok: false, error: e.message }; }
 }
-async function apiPost(body) {
-  const res = await fetch(GAS_URL, { method:"POST", redirect:"follow", body:JSON.stringify(body) });
-  return res.json();
+
+async function sbPost(table, body) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method: "POST", headers: sbHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.message || JSON.stringify(data) };
+    return { ok: true, data: Array.isArray(data) ? data[0] : data };
+  } catch(e) { return { ok: false, error: e.message }; }
+}
+
+async function sbPatch(table, id_col, id_val, body) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${id_col}=eq.${encodeURIComponent(id_val)}`, {
+      method: "PATCH", headers: sbHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.message || JSON.stringify(data) };
+    return { ok: true, data: Array.isArray(data) ? data[0] : data };
+  } catch(e) { return { ok: false, error: e.message }; }
+}
+
+async function sbDelete(table, id_col, id_val) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${id_col}=eq.${encodeURIComponent(id_val)}`, {
+      method: "DELETE", headers: { ...sbHeaders(), "Prefer": "" }
+    });
+    if (!res.ok) { const d = await res.json(); return { ok: false, error: d.message }; }
+    return { ok: true };
+  } catch(e) { return { ok: false, error: e.message }; }
 }
 
 // ── UTILS ────────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat("th-TH",{minimumFractionDigits:2}).format(n||0);
 const fmtN = n => new Intl.NumberFormat("th-TH").format(n||0);
 const thDate = iso => iso ? new Date(iso).toLocaleDateString("th-TH",{day:"2-digit",month:"short",year:"numeric"}) : "-";
-const uid = () => Date.now().toString(36);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,5);
 
 const COLORS = ["#c8521a","#1e5fa0","#2d7d4f","#c49b1a","#7c3aed","#0891b2","#be185d","#047857"];
 
@@ -245,8 +284,34 @@ function Dashboard({ onNav }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiGet({ action:"getDashboard" }).then(r => {
-      if(r.ok) setData(r.data);
+    Promise.all([
+      sbGet("expenses", "?select=total_amount"),
+      sbGet("projects", "?select=project_id"),
+      sbGet("expenses", "?select=*,projects(project_name)&order=created_at.desc&limit=10"),
+    ]).then(([er, pr, rr]) => {
+      if(er.ok && pr.ok && rr.ok) {
+        const totalAmount = er.data.reduce((s,e)=>s+(parseFloat(e.total_amount)||0),0);
+        const byProject = {};
+        er.data.forEach(e => {
+          if(!e.project_id) return;
+          if(!byProject[e.project_id]) byProject[e.project_id] = { project_name: e.project_name||e.project_id, total_amount: 0 };
+          byProject[e.project_id].total_amount += parseFloat(e.total_amount)||0;
+        });
+        const byCategory = {};
+        er.data.forEach(e => {
+          if(!e.category_id) return;
+          if(!byCategory[e.category_id]) byCategory[e.category_id] = { category: e.category_name||e.category_id, total_amount: 0 };
+          byCategory[e.category_id].total_amount += parseFloat(e.total_amount)||0;
+        });
+        setData({
+          totalProjects: pr.data.length,
+          totalExpenses: er.data.length,
+          totalAmount,
+          recentExpenses: rr.data,
+          byProject: Object.values(byProject).sort((a,b)=>b.total_amount-a.total_amount).slice(0,5),
+          byCategory: Object.values(byCategory).sort((a,b)=>b.total_amount-a.total_amount).slice(0,5),
+        });
+      }
       setLoading(false);
     });
   }, []);
@@ -376,8 +441,8 @@ function ProjectsPage({ showFlash, setLoading }) {
 
   const load = async () => {
     setLoc(true);
-    const r = await apiGet({ action:"getProjects" });
-    if(r.ok) setProjects(r.data);
+    const r = await sbGet("project_summary", "?order=created_at.asc");
+    if(r.ok) setProjects(r.data.map(p=>({...p, total_spent: p.total_spent||0})));
     setLoc(false);
   };
   useEffect(() => { load(); }, []);
@@ -388,7 +453,12 @@ function ProjectsPage({ showFlash, setLoading }) {
   const save = async () => {
     if(!form.project_name){ showFlash("กรุณากรอกชื่อโครงการ","err"); return; }
     setLoading(true);
-    const r = await apiPost({ action: editItem ? "editProject" : "addProject", ...form, project_id: editItem?.project_id });
+    let r;
+    if(editItem) {
+      r = await sbPatch("projects","project_id",editItem.project_id,{project_name:form.project_name,description:form.description,budget:form.budget||null,start_date:form.start_date||null,end_date:form.end_date||null});
+    } else {
+      r = await sbPost("projects",{project_id:uid(),project_name:form.project_name,description:form.description,budget:form.budget||null,start_date:form.start_date||null,end_date:form.end_date||null});
+    }
     if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"เพิ่มโครงการสำเร็จ ✓"); setShowModal(false); await load(); }
     else showFlash(r.error||"เกิดข้อผิดพลาด","err");
     setLoading(false);
@@ -396,7 +466,7 @@ function ProjectsPage({ showFlash, setLoading }) {
 
   const del = async (id) => {
     setLoading(true);
-    const r = await apiPost({ action:"deleteProject", project_id:id });
+    const r = await sbDelete("projects","project_id",id);
     if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false);
@@ -492,7 +562,7 @@ function LocationsPage({ showFlash, setLoading }) {
 
   const load = async () => {
     setLoc(true);
-    const r = await apiGet({ action:"getLocations" });
+    const r = await sbGet("location_summary","?order=location_name.asc");
     if(r.ok) setLocations(r.data);
     setLoc(false);
   };
@@ -501,7 +571,12 @@ function LocationsPage({ showFlash, setLoading }) {
   const save = async () => {
     if(!form.location_name){ showFlash("กรุณากรอกชื่อสนาม/จังหวัด","err"); return; }
     setLoading(true);
-    const r = await apiPost({ action: editItem ? "editLocation" : "addLocation", ...form, location_id: editItem?.location_id });
+    let r;
+    if(editItem) {
+      r = await sbPatch("locations","location_id",editItem.location_id,{location_name:form.location_name,description:form.description});
+    } else {
+      r = await sbPost("locations",{location_id:uid(),location_name:form.location_name,description:form.description});
+    }
     if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"เพิ่มสำเร็จ ✓"); setShowModal(false); await load(); }
     else showFlash(r.error,"err");
     setLoading(false);
@@ -509,7 +584,7 @@ function LocationsPage({ showFlash, setLoading }) {
 
   const del = async id => {
     setLoading(true);
-    const r = await apiPost({ action:"deleteLocation", location_id:id });
+    const r = await sbDelete("locations","location_id",id);
     if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false); setConfirm(null);
@@ -579,7 +654,7 @@ function CategoriesPage({ showFlash, setLoading }) {
 
   const load = async () => {
     setLoc(true);
-    const r = await apiGet({ action:"getCategories" });
+    const r = await sbGet("category_summary","?order=category_name.asc");
     if(r.ok) setCats(r.data);
     setLoc(false);
   };
@@ -588,7 +663,12 @@ function CategoriesPage({ showFlash, setLoading }) {
   const save = async () => {
     if(!form.category_name){ showFlash("กรุณากรอกชื่อหมวดหมู่","err"); return; }
     setLoading(true);
-    const r = await apiPost({ action: editItem?"editCategory":"addCategory", ...form, category_id: editItem?.category_id });
+    let r;
+    if(editItem) {
+      r = await sbPatch("categories","category_id",editItem.category_id,{category_name:form.category_name,description:form.description});
+    } else {
+      r = await sbPost("categories",{category_id:uid(),category_name:form.category_name,description:form.description});
+    }
     if(r.ok){ showFlash("บันทึกสำเร็จ ✓"); setShowModal(false); await load(); }
     else showFlash(r.error,"err");
     setLoading(false);
@@ -596,7 +676,7 @@ function CategoriesPage({ showFlash, setLoading }) {
 
   const del = async id => {
     setLoading(true);
-    const r = await apiPost({ action:"deleteCategory", category_id:id });
+    const r = await sbDelete("categories","category_id",id);
     if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false); setConfirm(null);
@@ -677,11 +757,11 @@ function ExpensesPage({ showFlash, setLoading }) {
   const load = async () => {
     setLoc(true);
     const [er, pr, lr, cr, sr] = await Promise.all([
-      apiGet({ action:"getExpenses" }),
-      apiGet({ action:"getProjects" }),
-      apiGet({ action:"getLocations" }),
-      apiGet({ action:"getCategories" }),
-      apiGet({ action:"getSuppliers" }),
+      sbGet("expenses","?order=created_at.desc"),
+      sbGet("projects","?order=project_name.asc&select=project_id,project_name"),
+      sbGet("locations","?order=location_name.asc&select=location_id,location_name"),
+      sbGet("categories","?order=category_name.asc&select=category_id,category_name"),
+      sbGet("suppliers","?order=name.asc"),
     ]);
     if(er.ok) setExpenses(er.data);
     if(pr.ok) setProjects(pr.data);
@@ -704,10 +784,6 @@ function ExpensesPage({ showFlash, setLoading }) {
 
   const filteredTotal = useMemo(()=>filtered.reduce((s,e)=>s+(parseFloat(e.total_amount)||0),0),[filtered]);
 
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [aiText, setAiText] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-
   const openAdd = () => { setForm(blank); setEditItem(null); setShowModal(true); };
   const openEdit = e => {
     setForm({ project_id:e.project_id, location_id:e.location_id, category_id:e.category_id, supplier_id:e.supplier_id||"", description:e.description, unit_price:e.unit_price, quantity:e.quantity, note:e.note||"", file_quote:e.file_quote||"", file_slip:e.file_slip||"", expense_date:e.expense_date||"" });
@@ -715,30 +791,7 @@ function ExpensesPage({ showFlash, setLoading }) {
   };
 
   const aiParse = async () => {
-    if(!aiText.trim()){ showFlash("กรุณาพิมพ์ข้อความก่อน","err"); return; }
-    setAiLoading(true);
-    const r = await apiPost({ action:"aiParseExpense", text:aiText });
-    if(r.ok){
-      setForm({
-        project_id:   r.data.project_id||"" ,
-        location_id:  r.data.location_id||"ALL",
-        category_id:  r.data.category_id||"",
-        description:  r.data.description||"",
-        unit_price:   r.data.unit_price||"",
-        quantity:     r.data.quantity||"1",
-        note:         r.data.note||"",
-        file_quote:   "",
-        file_slip:    "",
-        expense_date: r.data.expense_date||"",
-      });
-      setEditItem(null);
-      setShowAiModal(false);
-      setShowModal(true);
-      showFlash("AI กรอกข้อมูลให้แล้ว กรุณาตรวจสอบก่อนบันทึก ✓");
-    } else {
-      showFlash(r.error||"AI แปลงข้อมูลไม่สำเร็จ","err");
-    }
-    setAiLoading(false);
+    showFlash("ฟีเจอร์ AI ยังไม่รองรับกับ Supabase ในขณะนี้","err");
   };
 
   const save = async () => {
@@ -746,7 +799,27 @@ function ExpensesPage({ showFlash, setLoading }) {
       showFlash("กรุณากรอกข้อมูลให้ครบ (โครงการ / สนาม / หมวด / รายการ / ราคา)","err"); return;
     }
     setLoading(true);
-    const r = await apiPost({ action: editItem?"editExpense":"addExpense", ...form, expense_id: editItem?.expense_id });
+    const proj = projects.find(p=>p.project_id===form.project_id);
+    const loc2 = form.location_id==="ALL" ? {location_id:"ALL",location_name:"ทั้งโครงการ"} : locations.find(l=>l.location_id===form.location_id);
+    const cat  = categories.find(c=>c.category_id===form.category_id);
+    const sup  = suppliers.find(s=>s.supplier_id===form.supplier_id);
+    const unit_price = parseFloat(form.unit_price)||0;
+    const quantity   = parseFloat(form.quantity)||1;
+    const payload = {
+      project_id:form.project_id, project_name:proj?.project_name||"",
+      location_id:form.location_id, location_name:loc2?.location_name||"",
+      category_id:form.category_id, category_name:cat?.category_name||"",
+      supplier_id:form.supplier_id||null, supplier_name:sup?.name||"", supplier_status:sup?.status||"",
+      description:form.description, unit_price, quantity, total_amount:unit_price*quantity,
+      note:form.note||"", file_quote:form.file_quote||"", file_slip:form.file_slip||"",
+      expense_date:form.expense_date||null,
+    };
+    let r;
+    if(editItem) {
+      r = await sbPatch("expenses","expense_id",editItem.expense_id, payload);
+    } else {
+      r = await sbPost("expenses", {...payload, expense_id:uid()});
+    }
     if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"บันทึกค่าใช้จ่ายสำเร็จ ✓"); setShowModal(false); await load(); }
     else showFlash(r.error||"เกิดข้อผิดพลาด","err");
     setLoading(false);
@@ -754,7 +827,7 @@ function ExpensesPage({ showFlash, setLoading }) {
 
   const del = async id => {
     setLoading(true);
-    const r = await apiPost({ action:"deleteExpense", expense_id:id });
+    const r = await sbDelete("expenses","expense_id",id);
     if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false); setConfirm(null);
@@ -763,11 +836,12 @@ function ExpensesPage({ showFlash, setLoading }) {
   const saveSupplierInline = async () => {
     if(!supplierForm.name){ showFlash("กรุณากรอกชื่อร้าน/บริษัท","err"); return; }
     setLoading(true);
-    const r = await apiPost({ action:"addSupplier", ...supplierForm, tags: supplierTags.join(",") });
+    const newId = uid();
+    const r = await sbPost("suppliers",{supplier_id:newId,...supplierForm,tags:supplierTags.join(",")});
     if(r.ok){
       showFlash("เพิ่มซัพพลายเออร์สำเร็จ ✓");
-      const sr = await apiGet({ action:"getSuppliers" });
-      if(sr.ok){ setSuppliers(sr.data); setForm({...form, supplier_id: r.id}); }
+      const sr = await sbGet("suppliers","?order=name.asc");
+      if(sr.ok){ setSuppliers(sr.data); setForm({...form, supplier_id: newId}); }
       setShowSupplierModal(false);
       setSupplierForm({ name:"", status:"บุคคลธรรมดา", tags:"", phone:"", contact_name:"", line_id:"", note:"" });
       setSupplierTags([]);
@@ -781,10 +855,7 @@ function ExpensesPage({ showFlash, setLoading }) {
     <div className="page fade-in">
       <div className="flex-between page-header">
         <div><div className="page-title">ค่าใช้จ่าย</div><div className="page-subtitle">บันทึกและดูรายการค่าใช้จ่ายทั้งหมด</div></div>
-        <div style={{display:"flex",gap:10}}>
-          <button className="btn btn-ghost" onClick={()=>{setAiText("");setShowAiModal(true)}} style={{background:"linear-gradient(135deg,#667eea,#764ba2)",color:"#fff",border:"none"}}>✨ AI กรอกให้</button>
-          <button className="btn btn-primary" onClick={openAdd}>＋ บันทึกรายจ่าย</button>
-        </div>
+        <button className="btn btn-primary" onClick={openAdd}>＋ บันทึกรายจ่าย</button>
       </div>
 
       {/* Filter bar */}
@@ -867,30 +938,6 @@ function ExpensesPage({ showFlash, setLoading }) {
               </tfoot>
             )}
           </table>
-        </div>
-      )}
-
-      {/* AI Parse Modal */}
-      {showAiModal && (
-        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowAiModal(false)}>
-          <div className="modal" style={{maxWidth:500}}>
-            <div className="modal-title">✨ AI กรอกค่าใช้จ่ายให้</div>
-            <div style={{fontSize:13,color:"var(--text2)",marginBottom:14,lineHeight:1.6}}>
-              พิมพ์รายการค่าใช้จ่ายเป็นข้อความธรรมดา แล้ว AI จะแปลงให้อัตโนมัติ<br/>
-              <span style={{color:"var(--text3)"}}>ตัวอย่าง: "ค่าแรงทีมงาน สนามเชียงใหม่ โครงการ A 3,500 บาท"</span>
-            </div>
-            <div className="field">
-              <label>ข้อความรายการค่าใช้จ่าย</label>
-              <textarea className="inp" rows={4} value={aiText} onChange={e=>setAiText(e.target.value)}
-                placeholder="เช่น: ซื้อเสื้อทีม 50 ตัว ตัวละ 200 บาท, ค่าจ้างแรงงานสนามขอนแก่น 5,000 บาท โครงการ B..."/>
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={aiParse} disabled={aiLoading} className="btn btn-primary" style={{flex:1,justifyContent:"center",background:"linear-gradient(135deg,#667eea,#764ba2)",border:"none"}}>
-                {aiLoading ? <span className="spin">⏳</span> : "✨"} {aiLoading ? "กำลังวิเคราะห์..." : "ให้ AI กรอกให้"}
-              </button>
-              <button onClick={()=>setShowAiModal(false)} className="btn btn-ghost">ยกเลิก</button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1038,9 +1085,37 @@ function SummaryPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(()=>{
-    Promise.all([apiGet({action:"getSummary",project_id:filter.project_id}), apiGet({action:"getProjects"})]).then(([sr,pr])=>{
-      if(sr.ok) setData(sr.data);
-      if(pr.ok) setProjects(pr.data);
+    const pid = filter.project_id;
+    const expFilter = pid ? `?project_id=eq.${pid}&select=*` : "?select=*";
+    Promise.all([
+      sbGet("expenses", expFilter),
+      sbGet("projects","?order=project_name.asc&select=project_id,project_name,budget"),
+    ]).then(([er, pr])=>{
+      if(er.ok && pr.ok){
+        const exps = er.data;
+        const grandTotal = exps.reduce((s,e)=>s+(parseFloat(e.total_amount)||0),0);
+        const byLoc={}, byCat={}, byProj={};
+        exps.forEach(e=>{
+          const lid=e.location_id||"ไม่ระบุ", lname=e.location_name||"ไม่ระบุ";
+          if(!byLoc[lid]) byLoc[lid]={location_name:lname,count:0,total_amount:0};
+          byLoc[lid].count++; byLoc[lid].total_amount+=parseFloat(e.total_amount)||0;
+
+          const cid=e.category_id||"ไม่ระบุ", cname=e.category_name||"ไม่ระบุ";
+          if(!byCat[cid]) byCat[cid]={category_name:cname,count:0,total_amount:0};
+          byCat[cid].count++; byCat[cid].total_amount+=parseFloat(e.total_amount)||0;
+
+          const ppid=e.project_id||"ไม่ระบุ", pname=e.project_name||"ไม่ระบุ";
+          if(!byProj[ppid]) byProj[ppid]={project_name:pname,count:0,total_amount:0,budget:pr.data.find(p=>p.project_id===ppid)?.budget||0};
+          byProj[ppid].count++; byProj[ppid].total_amount+=parseFloat(e.total_amount)||0;
+        });
+        setData({
+          grandTotal,
+          byLocation: Object.values(byLoc).sort((a,b)=>b.total_amount-a.total_amount),
+          byCategory: Object.values(byCat).sort((a,b)=>b.total_amount-a.total_amount),
+          byProject:  Object.values(byProj).sort((a,b)=>b.total_amount-a.total_amount),
+        });
+        setProjects(pr.data);
+      }
       setLoading(false);
     });
   },[filter.project_id]);
@@ -1178,7 +1253,7 @@ function SuppliersPage({ showFlash, setLoading }) {
 
   const load = async () => {
     setLoc(true);
-    const r = await apiGet({ action:"getSuppliers" });
+    const r = await sbGet("suppliers","?order=name.asc");
     if(r.ok) setSuppliers(r.data);
     setLoc(false);
   };
@@ -1198,8 +1273,13 @@ function SuppliersPage({ showFlash, setLoading }) {
   const save = async () => {
     if(!form.name){ showFlash("กรุณากรอกชื่อร้าน/บริษัท","err"); return; }
     setLoading(true);
-    const payload = { ...form, tags: selectedTags.join(","), supplier_id: editItem?.supplier_id };
-    const r = await apiPost({ action: editItem ? "editSupplier" : "addSupplier", ...payload });
+    const payload = { ...form, tags: selectedTags.join(",") };
+    let r;
+    if(editItem) {
+      r = await sbPatch("suppliers","supplier_id",editItem.supplier_id, payload);
+    } else {
+      r = await sbPost("suppliers",{supplier_id:uid(),...payload});
+    }
     if(r.ok){ showFlash(editItem?"แก้ไขสำเร็จ ✓":"เพิ่มซัพพลายเออร์สำเร็จ ✓"); setShowModal(false); await load(); }
     else showFlash(r.error||"เกิดข้อผิดพลาด","err");
     setLoading(false);
@@ -1207,7 +1287,7 @@ function SuppliersPage({ showFlash, setLoading }) {
 
   const del = async id => {
     setLoading(true);
-    const r = await apiPost({ action:"deleteSupplier", supplier_id:id });
+    const r = await sbDelete("suppliers","supplier_id",id);
     if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
     else showFlash(r.error||"ลบไม่สำเร็จ","err");
     setLoading(false); setConfirm(null);
