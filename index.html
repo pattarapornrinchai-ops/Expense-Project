@@ -1414,6 +1414,348 @@ function SuppliersPage({ showFlash, setLoading }) {
   );
 }
 
+
+// ════════════════════════════════════════════════════════════════
+//  PRICE INQUIRY PAGE (สืบราคา)
+// ════════════════════════════════════════════════════════════════
+function PriceInquiryPage({ showFlash, setLoading }) {
+  const [inquiries, setInquiries]   = useState([]);
+  const [quotes, setQuotes]         = useState([]);
+  const [suppliers, setSuppliers]   = useState([]);
+  const [tags, setTags]             = useState([]);
+  const [loc, setLoc]               = useState(true);
+  const [search, setSearch]         = useState("");
+  const [filterTag, setFilterTag]   = useState("");
+
+  // Inquiry modal
+  const [showInqModal, setShowInqModal] = useState(false);
+  const [editInq, setEditInq]           = useState(null);
+  const [inqForm, setInqForm]           = useState({ item_name:"", note:"" });
+  const [inqTags, setInqTags]           = useState([]);
+
+  // Quote modal
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [editQuote, setEditQuote]           = useState(null);
+  const [activeInquiry, setActiveInquiry]   = useState(null);
+  const [quoteForm, setQuoteForm]           = useState({ supplier_id:"", price:"", unit:"", quote_date:"", file_url:"", note:"" });
+
+  // Add tag modal
+  const [showTagModal, setShowTagModal] = useState(false);
+  const [newTagName, setNewTagName]     = useState("");
+
+  // Confirm delete
+  const [confirm, setConfirm] = useState(null);
+
+  const load = async () => {
+    setLoc(true);
+    const [ir, qr, sr, tr] = await Promise.all([
+      sbGet("price_inquiries", "?order=created_at.desc"),
+      sbGet("inquiry_quotes",  "?order=created_at.asc"),
+      sbGet("suppliers",       "?order=name.asc&select=supplier_id,name"),
+      sbGet("inquiry_tags",    "?order=tag_name.asc"),
+    ]);
+    if(ir.ok) setInquiries(ir.data);
+    if(qr.ok) setQuotes(qr.data);
+    if(sr.ok) setSuppliers(sr.data);
+    if(tr.ok) setTags(tr.data);
+    setLoc(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  // ── Tags ──
+  const toggleInqTag = id => setInqTags(prev => prev.includes(id) ? prev.filter(t=>t!==id) : [...prev, id]);
+
+  const addTag = async () => {
+    if(!newTagName.trim()){ showFlash("กรุณากรอกชื่อ tag","err"); return; }
+    const r = await sbPost("inquiry_tags", { tag_id: uid(), tag_name: newTagName.trim() });
+    if(r.ok){ showFlash("เพิ่ม tag สำเร็จ ✓"); setNewTagName(""); const tr = await sbGet("inquiry_tags","?order=tag_name.asc"); if(tr.ok) setTags(tr.data); }
+    else showFlash(r.error||"เกิดข้อผิดพลาด","err");
+  };
+
+  // ── Inquiry CRUD ──
+  const openAddInq = () => { setInqForm({item_name:"",note:""}); setInqTags([]); setEditInq(null); setShowInqModal(true); };
+  const openEditInq = inq => {
+    setInqForm({ item_name:inq.item_name, note:inq.note||"" });
+    setInqTags(inq.tags ? inq.tags.split(",").filter(Boolean) : []);
+    setEditInq(inq); setShowInqModal(true);
+  };
+
+  const saveInq = async () => {
+    if(!inqForm.item_name.trim()){ showFlash("กรุณากรอกชื่อรายการ","err"); return; }
+    setLoading(true);
+    const payload = { item_name:inqForm.item_name, note:inqForm.note||"", tags:inqTags.join(",") };
+    const r = editInq
+      ? await sbPatch("price_inquiries","inquiry_id",editInq.inquiry_id, payload)
+      : await sbPost("price_inquiries", { inquiry_id:uid(), ...payload });
+    if(r.ok){ showFlash(editInq?"แก้ไขสำเร็จ ✓":"เพิ่มรายการสำเร็จ ✓"); setShowInqModal(false); await load(); }
+    else showFlash(r.error||"เกิดข้อผิดพลาด","err");
+    setLoading(false);
+  };
+
+  const delInq = async id => {
+    setLoading(true);
+    const r = await sbDelete("price_inquiries","inquiry_id",id);
+    if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
+    else showFlash(r.error||"ลบไม่สำเร็จ","err");
+    setLoading(false); setConfirm(null);
+  };
+
+  // ── Quote CRUD ──
+  const openAddQuote = inq => {
+    setQuoteForm({ supplier_id:"", price:"", unit:"", quote_date:"", file_url:"", note:"" });
+    setEditQuote(null); setActiveInquiry(inq); setShowQuoteModal(true);
+  };
+  const openEditQuote = (q, inq) => {
+    setQuoteForm({ supplier_id:q.supplier_id||"", price:q.price, unit:q.unit||"", quote_date:q.quote_date||"", file_url:q.file_url||"", note:q.note||"" });
+    setEditQuote(q); setActiveInquiry(inq); setShowQuoteModal(true);
+  };
+
+  const saveQuote = async () => {
+    if(!quoteForm.price){ showFlash("กรุณากรอกราคา","err"); return; }
+    setLoading(true);
+    const sup = suppliers.find(s=>s.supplier_id===quoteForm.supplier_id);
+    const payload = {
+      inquiry_id: activeInquiry.inquiry_id,
+      supplier_id: quoteForm.supplier_id||null,
+      supplier_name: sup?.name||quoteForm.supplier_name||"",
+      price: parseFloat(quoteForm.price)||0,
+      unit: quoteForm.unit||"",
+      quote_date: quoteForm.quote_date||null,
+      file_url: quoteForm.file_url||"",
+      note: quoteForm.note||"",
+    };
+    const r = editQuote
+      ? await sbPatch("inquiry_quotes","quote_id",editQuote.quote_id, payload)
+      : await sbPost("inquiry_quotes", { quote_id:uid(), ...payload });
+    if(r.ok){ showFlash("บันทึกสำเร็จ ✓"); setShowQuoteModal(false); await load(); }
+    else showFlash(r.error||"เกิดข้อผิดพลาด","err");
+    setLoading(false);
+  };
+
+  const delQuote = async id => {
+    setLoading(true);
+    const r = await sbDelete("inquiry_quotes","quote_id",id);
+    if(r.ok){ showFlash("ลบสำเร็จ"); await load(); }
+    else showFlash(r.error||"ลบไม่สำเร็จ","err");
+    setLoading(false); setConfirm(null);
+  };
+
+  // ── Filter ──
+  const filtered = useMemo(() => inquiries.filter(inq => {
+    if(search && !inq.item_name.toLowerCase().includes(search.toLowerCase())) return false;
+    if(filterTag && !(inq.tags||"").split(",").includes(filterTag)) return false;
+    return true;
+  }), [inquiries, search, filterTag]);
+
+  const getTagName = id => tags.find(t=>t.tag_id===id)?.tag_name || id;
+
+  return (
+    <div className="page fade-in">
+      <div className="flex-between page-header">
+        <div><div className="page-title">สืบราคา</div><div className="page-subtitle">เปรียบเทียบราคาจากหลายบริษัท พร้อมแนบใบเสนอราคา</div></div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn btn-ghost btn-sm" onClick={()=>setShowTagModal(true)}>🏷️ จัดการ Tags</button>
+          <button className="btn btn-primary" onClick={openAddInq}>＋ เพิ่มรายการสืบราคา</button>
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      <div className="filter-bar">
+        <input className="inp inp-sm" style={{minWidth:200}} placeholder="🔍 ค้นหารายการ..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <select className="inp inp-sm" value={filterTag} onChange={e=>setFilterTag(e.target.value)}>
+          <option value="">🏷️ ทุก Tag</option>
+          {tags.map(t=><option key={t.tag_id} value={t.tag_id}>{t.tag_name}</option>)}
+        </select>
+        {(search||filterTag) && <button className="btn btn-ghost btn-sm" onClick={()=>{setSearch("");setFilterTag("");}}>✕ ล้าง</button>}
+      </div>
+
+      {loc ? (
+        <div style={{display:"grid",gap:14}}>{[1,2].map(i=><div key={i} className="skeleton" style={{height:140}}/>)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="card empty"><div className="empty-icon">🔍</div><div>{search||filterTag?"ไม่พบรายการที่ค้นหา":"ยังไม่มีรายการสืบราคา กดปุ่ม เพิ่มรายการสืบราคา เพื่อเริ่มต้น"}</div></div>
+      ) : (
+        <div style={{display:"grid",gap:18}}>
+          {filtered.map(inq => {
+            const inqQuotes = quotes.filter(q=>q.inquiry_id===inq.inquiry_id);
+            const prices = inqQuotes.map(q=>parseFloat(q.price)||0).filter(p=>p>0);
+            const minPrice = prices.length ? Math.min(...prices) : 0;
+            const maxPrice = prices.length ? Math.max(...prices) : 0;
+            const inqTagList = (inq.tags||"").split(",").filter(Boolean);
+
+            return (
+              <div key={inq.inquiry_id} className="card">
+                {/* Header */}
+                <div className="flex-between" style={{marginBottom:12}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <div style={{fontFamily:"Kanit,sans-serif",fontSize:16,fontWeight:700}}>{inq.item_name}</div>
+                      {inqTagList.map(tid=>(
+                        <span key={tid} className="badge badge-orange" style={{fontSize:10}}>{getTagName(tid)}</span>
+                      ))}
+                    </div>
+                    {inq.note && <div style={{fontSize:12,color:"var(--text2)",marginTop:3}}>{inq.note}</div>}
+                    {prices.length > 0 && (
+                      <div style={{fontSize:12,marginTop:4}}>
+                        <span style={{color:"var(--green)",fontWeight:600}}>ถูกสุด {fmt(minPrice)} ฿</span>
+                        {prices.length > 1 && <span style={{color:"var(--text3)",margin:"0 6px"}}>—</span>}
+                        {prices.length > 1 && <span style={{color:"var(--red)",fontWeight:600}}>แพงสุด {fmt(maxPrice)} ฿</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button className="btn btn-primary btn-sm" onClick={()=>openAddQuote(inq)}>＋ เพิ่มราคา</button>
+                    <button className="btn btn-ghost btn-xs" onClick={()=>openEditInq(inq)}>✏️</button>
+                    <button className="btn btn-danger btn-xs" onClick={()=>setConfirm({type:"inq",id:inq.inquiry_id,name:inq.item_name})}>🗑️</button>
+                  </div>
+                </div>
+
+                {/* Quotes table */}
+                {inqQuotes.length === 0 ? (
+                  <div style={{textAlign:"center",padding:"12px",color:"var(--text3)",fontSize:13}}>ยังไม่มีราคา กดปุ่ม "＋ เพิ่มราคา" เพื่อเริ่มสืบราคา</div>
+                ) : (
+                  <div className="tbl-wrap">
+                    <table className="tbl">
+                      <thead>
+                        <tr><th>บริษัท/ร้านค้า</th><th className="text-right">ราคา</th><th>หน่วย</th><th>วันที่</th><th>ใบเสนอราคา</th><th>หมายเหตุ</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {inqQuotes.map(q => {
+                          const isMin = prices.length > 1 && parseFloat(q.price) === minPrice;
+                          const isMax = prices.length > 1 && parseFloat(q.price) === maxPrice;
+                          return (
+                            <tr key={q.quote_id}>
+                              <td><strong>{q.supplier_name||"-"}</strong></td>
+                              <td className="text-right fw-bold" style={{color:isMin?"var(--green)":isMax?"var(--red)":"var(--text)"}}>
+                                {fmt(q.price)} ฿
+                                {isMin && <span className="badge badge-green" style={{marginLeft:6,fontSize:10}}>ถูกสุด</span>}
+                                {isMax && <span className="badge badge-orange" style={{marginLeft:6,fontSize:10}}>แพงสุด</span>}
+                              </td>
+                              <td style={{fontSize:12,color:"var(--text2)"}}>{q.unit||"-"}</td>
+                              <td style={{fontSize:12,color:"var(--text2)"}}>{q.quote_date ? thDate(q.quote_date) : "-"}</td>
+                              <td>
+                                {q.file_url
+                                  ? <a href={q.file_url} target="_blank" rel="noreferrer" className="badge badge-blue" style={{textDecoration:"none",cursor:"pointer"}}>📄 เปิดไฟล์</a>
+                                  : <span style={{color:"var(--text3)",fontSize:12}}>-</span>
+                                }
+                              </td>
+                              <td style={{fontSize:12,color:"var(--text2)"}}>{q.note||"-"}</td>
+                              <td>
+                                <div style={{display:"flex",gap:4}}>
+                                  <button className="btn btn-ghost btn-xs" onClick={()=>openEditQuote(q,inq)}>✏️</button>
+                                  <button className="btn btn-danger btn-xs" onClick={()=>setConfirm({type:"quote",id:q.quote_id,name:q.supplier_name||"รายการนี้"})}>🗑️</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Inquiry Modal */}
+      {showInqModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowInqModal(false)}>
+          <div className="modal" style={{maxWidth:480}}>
+            <div className="modal-title">{editInq?"✏️ แก้ไขรายการ":"➕ เพิ่มรายการสืบราคา"}</div>
+            <div className="field"><label>ชื่อสินค้า/บริการ *</label><input className="inp" value={inqForm.item_name} onChange={e=>setInqForm({...inqForm,item_name:e.target.value})} placeholder="เช่น น้ำแข็งหลอดใหญ่, รถขนส่ง 4 ล้อ"/></div>
+            <div className="field">
+              <label>Tags</label>
+              {tags.length === 0 ? (
+                <div style={{fontSize:12,color:"var(--text3)"}}>ยังไม่มี tag กด "จัดการ Tags" เพื่อเพิ่ม</div>
+              ) : (
+                <div className="chip-row" style={{marginTop:6}}>
+                  {tags.map(t=>(
+                    <button key={t.tag_id} onClick={()=>toggleInqTag(t.tag_id)}
+                      className={`btn btn-xs ${inqTags.includes(t.tag_id)?"btn-primary":"btn-ghost"}`}>{t.tag_name}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="field"><label>หมายเหตุ</label><input className="inp" value={inqForm.note} onChange={e=>setInqForm({...inqForm,note:e.target.value})} placeholder="รายละเอียดเพิ่มเติม"/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={saveInq} className="btn btn-primary" style={{flex:1,justifyContent:"center"}}>💾 บันทึก</button>
+              <button onClick={()=>setShowInqModal(false)} className="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quote Modal */}
+      {showQuoteModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowQuoteModal(false)}>
+          <div className="modal" style={{maxWidth:500}}>
+            <div className="modal-title">{editQuote?"✏️ แก้ไขราคา":"➕ เพิ่มราคาจากบริษัท"}</div>
+            {activeInquiry && <div style={{fontSize:13,color:"var(--text2)",marginBottom:14}}>รายการ: <strong>{activeInquiry.item_name}</strong></div>}
+            <div className="field">
+              <label>บริษัท/ร้านค้า</label>
+              <select className="inp" value={quoteForm.supplier_id} onChange={e=>setQuoteForm({...quoteForm,supplier_id:e.target.value})}>
+                <option value="">— เลือกซัพพลายเออร์ —</option>
+                {suppliers.map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div className="field-row">
+              <div className="field"><label>ราคา (฿) *</label><input className="inp" type="number" step="0.01" value={quoteForm.price} onChange={e=>setQuoteForm({...quoteForm,price:e.target.value})} placeholder="0.00"/></div>
+              <div className="field"><label>หน่วย</label><input className="inp" value={quoteForm.unit} onChange={e=>setQuoteForm({...quoteForm,unit:e.target.value})} placeholder="เช่น ต่อถุง, ต่อเที่ยว"/></div>
+            </div>
+            <div className="field"><label>วันที่สืบราคา</label><input className="inp" type="date" value={quoteForm.quote_date} onChange={e=>setQuoteForm({...quoteForm,quote_date:e.target.value})}/></div>
+            <div className="field">
+              <label>📄 Link ใบเสนอราคา (Google Drive)</label>
+              <input className="inp" value={quoteForm.file_url} onChange={e=>setQuoteForm({...quoteForm,file_url:e.target.value})} placeholder="https://drive.google.com/file/d/..."/>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:4}}>วิธีรับ link: Google Drive → คลิกขวาที่ไฟล์ → Get link → Anyone with the link → Copy</div>
+            </div>
+            <div className="field"><label>หมายเหตุ</label><input className="inp" value={quoteForm.note} onChange={e=>setQuoteForm({...quoteForm,note:e.target.value})} placeholder="เงื่อนไข, รายละเอียดเพิ่มเติม"/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={saveQuote} className="btn btn-primary" style={{flex:1,justifyContent:"center"}}>💾 บันทึก</button>
+              <button onClick={()=>setShowQuoteModal(false)} className="btn btn-ghost">ยกเลิก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tag Management Modal */}
+      {showTagModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowTagModal(false)}>
+          <div className="modal" style={{maxWidth:420}}>
+            <div className="modal-title">🏷️ จัดการ Tags</div>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              <input className="inp" value={newTagName} onChange={e=>setNewTagName(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&addTag()} placeholder="ชื่อ tag ใหม่ เช่น ขนส่ง, อาหาร"/>
+              <button onClick={addTag} className="btn btn-primary btn-sm" style={{whiteSpace:"nowrap"}}>＋ เพิ่ม</button>
+            </div>
+            <div className="chip-row">
+              {tags.length === 0
+                ? <div style={{color:"var(--text3)",fontSize:13}}>ยังไม่มี tag</div>
+                : tags.map(t=>(
+                  <div key={t.tag_id} style={{display:"flex",alignItems:"center",gap:4,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:20,padding:"3px 10px"}}>
+                    <span style={{fontSize:12}}>{t.tag_name}</span>
+                    <button onClick={async()=>{ await sbDelete("inquiry_tags","tag_id",t.tag_id); const tr=await sbGet("inquiry_tags","?order=tag_name.asc"); if(tr.ok) setTags(tr.data); }}
+                      style={{background:"none",border:"none",cursor:"pointer",color:"var(--red)",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
+                  </div>
+                ))
+              }
+            </div>
+            <div style={{marginTop:16}}>
+              <button onClick={()=>setShowTagModal(false)} className="btn btn-ghost" style={{width:"100%",justifyContent:"center"}}>ปิด</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirm && <Confirm
+        msg={confirm.type==="inq" ? `ลบรายการ "${confirm.name}" และราคาทั้งหมดใช่มั้ย?` : `ลบราคาจาก "${confirm.name}" ใช่มั้ย?`}
+        onOk={()=>confirm.type==="inq" ? delInq(confirm.id) : delQuote(confirm.id)}
+        onCancel={()=>setConfirm(null)}
+      />}
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════
 //  APP ROOT
 // ════════════════════════════════════════════════════════════════
@@ -1422,6 +1764,7 @@ const NAVS = [
   { key:"expenses",         icon:"💸", label:"ค่าใช้จ่าย",    section:"หลัก" },
   { key:"summary",          icon:"📈", label:"สรุปรายงาน",   section:"หลัก" },
   { key:"suppliers",        icon:"🤝", label:"ซัพพลายเออร์",  section:"หลัก" },
+  { key:"price_inquiry",     icon:"🔍", label:"สืบราคา",       section:"หลัก" },
   { key:"projects",         icon:"📁", label:"โครงการ",      section:"ตั้งค่า" },
   { key:"locations",        icon:"📍", label:"สนาม/จังหวัด", section:"ตั้งค่า" },
   { key:"categories",       icon:"🗂️", label:"หมวดหมู่",     section:"ตั้งค่า" },
@@ -1444,6 +1787,7 @@ function App() {
       case "expenses":          return <ExpensesPage {...props}/>;
       case "summary":           return <SummaryPage/>;
       case "suppliers":         return <SuppliersPage {...props}/>;
+      case "price_inquiry":     return <PriceInquiryPage {...props}/>;
       case "projects":          return <ProjectsPage {...props}/>;
       case "locations":         return <LocationsPage {...props}/>;
       case "categories":        return <CategoriesPage {...props}/>;
