@@ -285,9 +285,9 @@ function Dashboard({ onNav }) {
 
   useEffect(() => {
     Promise.all([
-      sbGet("expenses", "?select=total_amount"),
+      sbGet("expenses", "?select=total_amount,project_id,project_name,category_id,category_name"),
       sbGet("projects", "?select=project_id"),
-      sbGet("expenses", "?select=*,projects(project_name)&order=created_at.desc&limit=10"),
+      sbGet("expenses", "?select=*&order=created_at.desc&limit=10"),
     ]).then(([er, pr, rr]) => {
       if(er.ok && pr.ok && rr.ok) {
         const totalAmount = er.data.reduce((s,e)=>s+(parseFloat(e.total_amount)||0),0);
